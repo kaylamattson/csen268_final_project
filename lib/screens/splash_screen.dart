@@ -5,6 +5,7 @@ import '../widgets/app_scaffold.dart';
 import '../widgets/app_text.dart';
 import '../widgets/pill_button.dart';
 import '../widgets/sensor_badge.dart';
+import 'login_screen.dart';
 import 'tabs_page.dart';
 
 class SplashScreen extends StatelessWidget {
@@ -41,7 +42,7 @@ class SplashScreen extends StatelessWidget {
             Pill(
                 text: 'Let’s Go!',
                 onTap: () => Navigator.pushReplacement(context,
-                    MaterialPageRoute(builder: (_) => const TabsPage())),
+                    MaterialPageRoute(builder: (_) => const LoginScreen())),
                 width: 197),
             const Spacer(flex: 3),
           ])));

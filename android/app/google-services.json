@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1072090440638",
+    "project_id": "csen268-10d6b",
+    "storage_bucket": "csen268-10d6b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1072090440638:android:fb06e9ccc3f3861f5f4fef",
+        "android_client_info": {
+          "package_name": "com.example.sensle"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDFz3C87kOeWvdoM_Q4QH9b_KlDvup3YUo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
