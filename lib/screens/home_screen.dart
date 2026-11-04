@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../theme/app_colors.dart';
 import '../models/sensor_kind.dart';
 import '../widgets/app_text.dart';
@@ -29,8 +30,14 @@ Widget build(BuildContext context) => SingleChildScrollView(
                 const SizedBox(width: 14),
                 Expanded(child: heading("Today's Challenge", size: 25))
               ]),
-              labelText('Oct 14, 2026', color: Colors.white70),
-              const SizedBox(height: 32),
+              Text(
+                DateFormat('MMM d, yyyy').format(DateTime.now()),
+                style: const TextStyle(
+                  color: Colors.white70, 
+                  fontSize: 20,
+                ),
+              ),
+              const SizedBox(height: 24),
               labelText('3 tasks, 1 minute.\nCan you complete them all?',
                   color: Colors.white, align: TextAlign.center),
               const SizedBox(height: 8)
