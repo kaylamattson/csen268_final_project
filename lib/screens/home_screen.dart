@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '../theme/app_colors.dart';
 import '../models/sensor_kind.dart';
 import '../widgets/app_text.dart';
@@ -9,14 +10,57 @@ import 'challenge_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
   @override
-  Widget build(BuildContext context) => SingleChildScrollView(
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _setupNotifications();
+  }
+
+  Future<void> _setupNotifications() async {
+    FirebaseMessaging messaging = FirebaseMessaging.instance;
+
+    // 1. Request notification permissions for iOS / Android 13+
+    NotificationSettings settings = await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    debugPrint('User granted permission: ${settings.authorizationStatus}');
+
+    // 2. Get the unique FCM token for testing or backend targeting
+    String? token = await messaging.getToken();
+    debugPrint("FCM Device Token: $token");
+
+    // 3. Listen for incoming messages while the app is in the foreground
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      debugPrint('Received foreground message: ${message.notification?.title}');
+      
+      if (message.notification != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${message.notification?.title}: ${message.notification?.body}'),
+          ),
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(30, 24, 30, 22),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('Sensle',
-            style: const TextStyle(
+        const Text('Sensle',
+            style: TextStyle(
                 fontSize: 56,
                 fontWeight: FontWeight.w800,
                 color: Colors.black)),
@@ -65,7 +109,7 @@ class HomeScreen extends StatelessWidget {
             onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const ChallengePage()))),
 
-// Temporary Firestore test button
+        // Temporary Firestore test button
         const SizedBox(height: 16),
         ElevatedButton(
           onPressed: () async {
@@ -108,5 +152,7 @@ class HomeScreen extends StatelessWidget {
           },
           child: const Text('Test Firestore'),
         ),
-      ]));
+      ]),
+    );
+  }
 }
