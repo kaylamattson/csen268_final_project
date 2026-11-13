@@ -6,11 +6,13 @@ import '../widgets/app_text.dart';
 import '../widgets/pill_button.dart';
 import '../widgets/task_card.dart';
 import 'challenge_page.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
   @override
-Widget build(BuildContext context) => SingleChildScrollView(
+  Widget build(BuildContext context) => SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(30, 24, 30, 22),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text('Sensle',
@@ -33,7 +35,7 @@ Widget build(BuildContext context) => SingleChildScrollView(
               Text(
                 DateFormat('MMM d, yyyy').format(DateTime.now()),
                 style: const TextStyle(
-                  color: Colors.white70, 
+                  color: Colors.white70,
                   fontSize: 20,
                 ),
               ),
@@ -53,6 +55,7 @@ Widget build(BuildContext context) => SingleChildScrollView(
                           initialTask: SensorKind.values.indexOf(s))))),
           const SizedBox(height: 18)
         ],
+
         const SizedBox(height: 16),
         Pill(
             text: 'Start Challenge',
@@ -61,5 +64,49 @@ Widget build(BuildContext context) => SingleChildScrollView(
             width: double.infinity,
             onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const ChallengePage()))),
+
+// Temporary Firestore test button
+        const SizedBox(height: 16),
+        ElevatedButton(
+          onPressed: () async {
+            try {
+              final user = FirebaseAuth.instance.currentUser;
+
+              if (user == null) {
+                debugPrint('No user signed in');
+                return;
+              }
+
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(user.uid)
+                  .collection('results')
+                  .add({
+                'directionError': 15,
+                'tiltAngle': 42,
+                'completedAt': FieldValue.serverTimestamp(),
+              });
+
+              debugPrint('Firestore test successful!');
+
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Result saved to Firestore!'),
+                  ),
+                );
+              }
+            } catch (e) {
+              debugPrint('Firestore error: $e');
+
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Firestore error: $e')),
+                );
+              }
+            }
+          },
+          child: const Text('Test Firestore'),
+        ),
       ]));
 }
