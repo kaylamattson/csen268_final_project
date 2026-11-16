@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:light/light.dart';
 
 import '../theme/app_colors.dart';
 import '../models/sensor_kind.dart';
@@ -49,6 +50,16 @@ class _ChallengePageState extends State<ChallengePage> {
 
   StreamSubscription<AccelerometerEvent>? accelerometerSubscription;
 
+  // Light Challenge
+  static const int targetLight = 500;
+
+  int? currentLight;
+  int? lockedLight;
+  bool lightLocked = false;
+  String? lightSensorError;
+
+  StreamSubscription<int>? lightSubscription;
+
   String getCardinalDirection(double degrees) {
     const directions = [
       'North',
@@ -74,6 +85,8 @@ class _ChallengePageState extends State<ChallengePage> {
       startDirectionSensor();
     } else if (current == 1) {
       startTiltSensor();
+    } else if (current == 2) {
+      startLightSensor();
     }
   }
 
@@ -138,6 +151,7 @@ Future<void> _saveResultsToFirestore() async {
     // Require a locked answer before advancing.
     if (current == 0 && !directionLocked) return;
     if (current == 1 && !tiltLocked) return;
+    if (current == 2 && !lightLocked) return;
 
     if (current < 2) {
       final previousTask = current;
@@ -158,6 +172,8 @@ Future<void> _saveResultsToFirestore() async {
       if (previousTask == 1) {
         accelerometerSubscription?.cancel();
         accelerometerSubscription = null;
+
+        startLightSensor();
       }
     } else {
       // Save results to Firestore right before finishing the final task
@@ -220,10 +236,52 @@ Future<void> _saveResultsToFirestore() async {
     return (lockedTilt! - targetTilt).abs();
   }
 
+  void startLightSensor() {
+    lightSubscription?.cancel();
+
+    lightSubscription = Light().lightSensorStream.listen(
+      (lux) {
+        if (!mounted || lightLocked) return;
+
+        setState(() {
+          currentLight = lux;
+          lightSensorError = null;
+        });
+      },
+      onError: (Object error) {
+        if (!mounted) return;
+
+        setState(() {
+          lightSensorError = 'Light sensor unavailable: $error';
+        });
+      },
+    );
+  }
+
+  void lockLight() {
+    if (currentLight == null || lightLocked) return;
+
+    setState(() {
+      lockedLight = currentLight;
+      lightLocked = true;
+    });
+
+    lightSubscription?.cancel();
+    lightSubscription = null;
+  }
+
+  int get lightError {
+    if (lockedLight == null) return 0;
+
+    return (lockedLight! - targetLight).abs();
+  }
+
   @override
   void dispose() {
     magnetometerSubscription?.cancel();
     accelerometerSubscription?.cancel();
+    lightSubscription?.cancel();
+
     super.dispose();
   }
 
@@ -282,7 +340,7 @@ Future<void> _saveResultsToFirestore() async {
                 // Next appears only after locking Direction.
                 if ((current == 0 && directionLocked) ||
                     (current == 1 && tiltLocked) ||
-                    current == 2)
+                    current == 2 && lightLocked)
                   Pill(
                     text: current == 2 ? 'Done' : 'Next',
                     width: 100,
@@ -311,7 +369,7 @@ Future<void> _saveResultsToFirestore() async {
                           SensorKind.direction =>
                             'Point ${targetDirection.toStringAsFixed(0)}° from North',
                           SensorKind.tilt => 'Tilt to 45°',
-                          SensorKind.light => 'Block the Light Sensor',
+                          SensorKind.light => 'Match 50 Lux',
                         },
                         size: 20,
                       ),
@@ -325,7 +383,8 @@ Future<void> _saveResultsToFirestore() async {
                           SensorKind.tilt =>
                             'Tilt your phone forward to exactly 45 degrees.',
                           SensorKind.light =>
-                            'Cover the top of your phone to block the light sensor.',
+                            'Cover or uncover the light sensor to match '
+                            '50 lux without seeing your live reading.',
                         },
                         size: 14,
                       ),
@@ -343,10 +402,7 @@ Future<void> _saveResultsToFirestore() async {
                   ? buildDirectionChallenge()
                   : current == 1
                       ? buildTiltChallenge()
-                      : SensorPanel(
-                          kind: kind,
-                          practice: false,
-                        ),
+                      : buildLightChallenge(),
             ),
 
             const SizedBox(height: 24),
@@ -447,23 +503,50 @@ Future<void> _saveResultsToFirestore() async {
                     ],
                   ),
                 ),
-            ] else
+            ] else ...[
               // LIGHT CHALLENGE
-              Container(
-                height: 76,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: C.limePale,
-                  borderRadius: BorderRadius.circular(21),
+
+              if (!lightLocked) ...[
+                labelText(
+                  lightSensorError != null
+                      ? lightSensorError!
+                      : currentLight == null
+                          ? 'Waiting for light sensor...'
+                          : 'Match 50 lux!\nYour current reading is hidden.',
+                  weight: FontWeight.w800,
+                  align: TextAlign.center,
                 ),
-                child: Center(
-                  child: labelText(
-                    'Keep blocking the light!',
-                    weight: FontWeight.w800,
-                    align: TextAlign.center,
+                const SizedBox(height: 18),
+                if (currentLight != null)
+                  Pill(
+                    text: 'Lock It In',
+                    width: 200,
+                    color: C.teal,
+                    onTap: lockLight,
+                  ),
+              ] else
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: C.limePale,
+                    borderRadius: BorderRadius.circular(21),
+                  ),
+                  child: Column(
+                    children: [
+                      heading(
+                        'Your Light: $lockedLight lux',
+                        size: 20,
+                      ),
+                      const SizedBox(height: 8),
+                      labelText(
+                        '$lightError lux off target',
+                        weight: FontWeight.w800,
+                      ),
+                    ],
                   ),
                 ),
-              ),
+            ],
 
             const Spacer(),
 
@@ -665,6 +748,68 @@ Future<void> _saveResultsToFirestore() async {
                     color: C.ink,
                   ),
                 ],
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget buildLightChallenge() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: C.limePale,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 28,
+          ),
+          child: Column(
+            children: [
+              const Icon(
+                Icons.light_mode_outlined,
+                color: C.ink,
+                size: 75,
+              ),
+              const SizedBox(height: 24),
+              labelText(
+                'YOUR TARGET',
+                color: C.ink,
+                weight: FontWeight.w800,
+              ),
+              const SizedBox(height: 12),
+              heading(
+                '$targetLight lux',
+                size: 44,
+                color: C.ink,
+              ),
+              const SizedBox(height: 24),
+              labelText(
+                'Cover or uncover your phone\'s '
+                'light sensor to match the target.',
+                color: C.ink,
+                size: 14,
+                align: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              labelText(
+                'Your live light reading is hidden.',
+                color: C.ink,
+                weight: FontWeight.w800,
+                align: TextAlign.center,
+              ),
+              if (lightLocked) ...[
+                const SizedBox(height: 24),
+                heading(
+                  'Locked In!',
+                  size: 24,
+                  color: C.ink,
+                ),
               ],
             ],
           ),
