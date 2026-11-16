@@ -138,7 +138,8 @@ Future<void> _saveResultsToFirestore() async {
       'challengeDate': DateFormat('yyyy-MM-dd').format(DateTime.now()),
       'directionError': directionError,
       'tiltError': tiltError,
-      'totalDurationSeconds': elapsedSeconds, // Now safe to include!
+      'lightError': lightError,
+      'totalDurationSeconds': elapsedSeconds, 
       'completedAt': FieldValue.serverTimestamp(),
     });
     debugPrint('Challenge metrics successfully saved to Firestore!');
