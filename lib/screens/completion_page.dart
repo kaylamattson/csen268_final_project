@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+
 
 import '../theme/app_colors.dart';
 import '../models/sensor_kind.dart';
@@ -12,6 +11,8 @@ import '../widgets/metric_card.dart';
 
 import 'share_dialog.dart';
 import 'tabs_page.dart';
+import '../models/challenge_result.dart';
+import '../repositories/challenge_repository.dart';
 
 class CompletionPage extends StatefulWidget {
   final String resultId;
@@ -26,26 +27,15 @@ class CompletionPage extends StatefulWidget {
 }
 
 class _CompletionPageState extends State<CompletionPage> {
-  late final Future<DocumentSnapshot<Map<String, dynamic>>> resultFuture;
+  late final Future<ChallengeResult?> resultFuture;
+
+  final ChallengeRepository _challengeRepository = ChallengeRepository();
 
   @override
   void initState() {
     super.initState();
 
-    final user = FirebaseAuth.instance.currentUser;
-
-    if (user == null) {
-      resultFuture = Future.error(
-        StateError('You are not signed in.'),
-      );
-    } else {
-      resultFuture = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('results')
-          .doc(widget.resultId)
-          .get();
-    }
+    resultFuture = _challengeRepository.getResult(widget.resultId);
   }
 
   String formatDuration(int seconds) {
@@ -64,7 +54,7 @@ class _CompletionPageState extends State<CompletionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+    return FutureBuilder<ChallengeResult?>(
       future: resultFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
@@ -90,9 +80,9 @@ class _CompletionPageState extends State<CompletionPage> {
           );
         }
 
-        final data = snapshot.data?.data();
+        final result = snapshot.data;
 
-        if (data == null) {
+        if (result == null) {
           return const Base(
             child: Center(
               child: Text('Challenge results not found.'),
@@ -100,14 +90,15 @@ class _CompletionPageState extends State<CompletionPage> {
           );
         }
 
-        final duration = (data['totalDurationSeconds'] as num?)?.toInt();
+        final duration = result.totalDurationSeconds;
 
-        final directionError = data['directionError'];
-        final tiltError = data['tiltError'];
-        final lightError = data['lightError'];
-        final accuracy = (data['accuracy'] as num?)?.toDouble();
+        final directionError = result.directionError;
+        final tiltError = result.tiltError;
+        final lightError = result.lightError;
 
-        final challengeDate = data['challengeDate'] as String? ?? '';
+        final accuracy = result.accuracy;
+
+        final challengeDate = result.challengeDate;
 
         return Base(
           child: SingleChildScrollView(

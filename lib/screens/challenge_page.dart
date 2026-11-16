@@ -6,6 +6,8 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:light/light.dart';
+import '../models/challenge_result.dart';
+import '../repositories/challenge_repository.dart';
 
 import '../theme/app_colors.dart';
 import '../models/sensor_kind.dart';
@@ -29,6 +31,7 @@ class ChallengePage extends StatefulWidget {
 class _ChallengePageState extends State<ChallengePage> {
   late int current = widget.initialTask;
   bool _savingResults = false;
+  final ChallengeRepository _challengeRepository = ChallengeRepository();
 
   // Direction Challenge
   static const double targetDirection = 120.0;
@@ -42,7 +45,7 @@ class _ChallengePageState extends State<ChallengePage> {
   StreamSubscription<MagnetometerEvent>? magnetometerSubscription;
 
   // Tilt Challenge
-  static const double targetTilt = 45.0;
+  static const double targetTilt = -45.0;
 
   double? currentTilt;
   double? lockedTilt;
@@ -124,42 +127,37 @@ class _ChallengePageState extends State<ChallengePage> {
   }
 
   Future<String> _saveResultsToFirestore() async {
-    final user = FirebaseAuth.instance.currentUser;
-
-    if (user == null) {
-      throw StateError('You must be signed in to save results.');
+    if (lockedHeading == null || lockedTilt == null || lockedLight == null) {
+      throw StateError('All three tasks must be completed.');
     }
 
     _challengeStopwatch.stop();
 
-    final int elapsedSeconds = _challengeStopwatch.elapsed.inSeconds;
+    final result = ChallengeResult(
+      challengeDate: DateFormat('yyyy-MM-dd').format(DateTime.now()),
 
-    final document = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .collection('results')
-        .add({
-      'challengeDate': DateFormat('yyyy-MM-dd').format(DateTime.now()),
-      'directionError': directionError,
-      'tiltError': tiltError,
-      'lightError': lightError,
-      'totalDurationSeconds': elapsedSeconds,
+      // Original measurements
+      directionError: directionError,
+      tiltError: tiltError,
+      lightError: lightError.toDouble(),
 
-      // New accuracy scores
-      'directionAccuracy': directionAccuracy,
-      'tiltAccuracy': tiltAccuracy,
-      'lightAccuracy': lightAccuracy,
-      'accuracy': overallAccuracy,
+      // Completion time
+      totalDurationSeconds: _challengeStopwatch.elapsed.inSeconds,
 
-      // Keep track of the scoring version
-      'scoringVersion': 1,
+      // Accuracy calculations
+      directionAccuracy: directionAccuracy,
+      tiltAccuracy: tiltAccuracy,
+      lightAccuracy: lightAccuracy,
+      accuracy: overallAccuracy,
 
-      'completedAt': FieldValue.serverTimestamp(),
-    });
+      scoringVersion: 1,
+    );
 
-    debugPrint('Saved challenge result: ${document.id}');
+    final resultId = await _challengeRepository.saveResult(result);
 
-    return document.id;
+    debugPrint('Saved challenge result: $resultId');
+
+    return resultId;
   }
 
   Future<void> nextTask() async {
@@ -265,6 +263,14 @@ class _ChallengePageState extends State<ChallengePage> {
     setState(() {
       tiltReady = true;
     });
+  }
+
+  String getTiltDirection(double angle) {
+    if (angle.abs() < 0.5) {
+      return 'Flat';
+    }
+    //coded for android studio how the phone works
+    return angle < 0 ? 'Forward' : 'Backward';
   }
 
   double get tiltError {
@@ -442,7 +448,9 @@ class _ChallengePageState extends State<ChallengePage> {
                         switch (kind) {
                           SensorKind.direction =>
                             'Point ${targetDirection.toStringAsFixed(0)}° from North',
-                          SensorKind.tilt => 'Tilt to 45°',
+                          SensorKind.tilt =>
+                            'Tilt ${targetTilt.abs().toStringAsFixed(0)}° '
+                                '${getTiltDirection(targetTilt)}',
                           SensorKind.light => 'Match 500 Lux',
                         },
                         size: 20,
@@ -471,12 +479,16 @@ class _ChallengePageState extends State<ChallengePage> {
             const SizedBox(height: 38),
 
             // Sensor display
-            Expanded(
-              child: current == 0
-                  ? buildDirectionChallenge()
-                  : current == 1
-                      ? buildTiltChallenge()
-                      : buildLightChallenge(),
+            Flexible(
+              fit: FlexFit.loose,
+              child: SizedBox(
+                height: current == 1 ? 335 : 350,
+                child: current == 0
+                    ? buildDirectionChallenge()
+                    : current == 1
+                        ? buildTiltChallenge()
+                        : buildLightChallenge(),
+              ),
             ),
 
             const SizedBox(height: 24),
@@ -566,7 +578,8 @@ class _ChallengePageState extends State<ChallengePage> {
                   child: Column(
                     children: [
                       heading(
-                        'Your Tilt: ${lockedTilt!.toStringAsFixed(1)}°',
+                        'Your Tilt: ${lockedTilt!.abs().toStringAsFixed(1)}° '
+                        '${getTiltDirection(lockedTilt!)}',
                         size: 20,
                       ),
                       const SizedBox(height: 8),
@@ -736,6 +749,7 @@ class _ChallengePageState extends State<ChallengePage> {
   }
 
   // Tilt challenge panel
+
   Widget buildTiltChallenge() {
     return Container(
       width: double.infinity,
@@ -746,17 +760,18 @@ class _ChallengePageState extends State<ChallengePage> {
       child: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.symmetric(
-            horizontal: 20,
-            vertical: 28,
+            horizontal: 18,
+            vertical: 16,
           ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(
                 Icons.screen_rotation_outlined,
                 color: C.ink,
-                size: 70,
+                size: 48,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 14),
               if (!tiltReady) ...[
                 labelText(
                   'STEP 1: STARTING POSITION',
@@ -766,18 +781,17 @@ class _ChallengePageState extends State<ChallengePage> {
                 const SizedBox(height: 12),
                 heading(
                   '0° — Flat',
-                  size: 30,
+                  size: 28,
                   color: C.ink,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 labelText(
-                  'Place your phone flat on a surface, '
-                  'screen facing upward.',
+                  'Place your phone flat, screen facing up.',
                   color: C.ink,
                   size: 14,
                   align: TextAlign.center,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 labelText(
                   currentTilt == null
                       ? 'Waiting for sensor...'
@@ -796,32 +810,26 @@ class _ChallengePageState extends State<ChallengePage> {
                 ),
                 const SizedBox(height: 12),
                 heading(
-                  '${targetTilt.toStringAsFixed(0)}°',
-                  size: 48,
+                  '${targetTilt.abs().toStringAsFixed(0)}°',
+                  size: 44,
                   color: C.ink,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
                 labelText(
-                  'Lift the top edge of your phone '
-                  'and estimate a 45° tilt.',
-                  color: C.ink,
-                  size: 14,
-                  align: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                labelText(
-                  'Your live angle is hidden.',
+                  getTiltDirection(targetTilt),
                   color: C.ink,
                   weight: FontWeight.w800,
                 ),
-                if (tiltLocked) ...[
-                  const SizedBox(height: 25),
-                  heading(
-                    'Locked In!',
-                    size: 24,
-                    color: C.ink,
-                  ),
-                ],
+                const SizedBox(height: 10),
+                const SizedBox(height: 8),
+                labelText(
+                  tiltLocked
+                      ? 'Locked In!'
+                      : 'Tilt toward your target, then lock it in.',
+                  color: C.ink,
+                  weight: FontWeight.w800,
+                  align: TextAlign.center,
+                ),
               ],
             ],
           ),
