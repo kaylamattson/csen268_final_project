@@ -89,14 +89,10 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 8)
             ])),
         const SizedBox(height: 24),
+        
+        // Task cards are now fully non-interactive
         for (final s in SensorKind.values) ...[
-          taskCard(
-              s,
-              () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => ChallengePage(
-                          initialTask: SensorKind.values.indexOf(s))))),
+          taskCard(s),
           const SizedBox(height: 18)
         ],
 
