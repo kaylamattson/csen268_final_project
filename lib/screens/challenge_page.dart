@@ -28,6 +28,7 @@ class ChallengePage extends StatefulWidget {
 
 class _ChallengePageState extends State<ChallengePage> {
   late int current = widget.initialTask;
+  bool _savingResults = false;
 
   // Direction Challenge
   static const double targetDirection = 120.0;
@@ -122,15 +123,18 @@ class _ChallengePageState extends State<ChallengePage> {
     return math.min(difference, 360 - difference);
   }
 
-Future<void> _saveResultsToFirestore() async {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return;
+  Future<String> _saveResultsToFirestore() async {
+    final user = FirebaseAuth.instance.currentUser;
 
-  _challengeStopwatch.stop(); // Stop timing the session
-  final int elapsedSeconds = _challengeStopwatch.elapsed.inSeconds;
+    if (user == null) {
+      throw StateError('You must be signed in to save results.');
+    }
 
-  try {
-    await FirebaseFirestore.instance
+    _challengeStopwatch.stop();
+
+    final int elapsedSeconds = _challengeStopwatch.elapsed.inSeconds;
+
+    final document = await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
         .collection('results')
@@ -139,16 +143,28 @@ Future<void> _saveResultsToFirestore() async {
       'directionError': directionError,
       'tiltError': tiltError,
       'lightError': lightError,
-      'totalDurationSeconds': elapsedSeconds, 
+      'totalDurationSeconds': elapsedSeconds,
+
+      // New accuracy scores
+      'directionAccuracy': directionAccuracy,
+      'tiltAccuracy': tiltAccuracy,
+      'lightAccuracy': lightAccuracy,
+      'accuracy': overallAccuracy,
+
+      // Keep track of the scoring version
+      'scoringVersion': 1,
+
       'completedAt': FieldValue.serverTimestamp(),
     });
-    debugPrint('Challenge metrics successfully saved to Firestore!');
-  } catch (e) {
-    debugPrint('Error saving challenge results: $e');
-  }
-}
 
-  void nextTask() async {
+    debugPrint('Saved challenge result: ${document.id}');
+
+    return document.id;
+  }
+
+  Future<void> nextTask() async {
+    if (_savingResults) return;
+
     // Require a locked answer before advancing.
     if (current == 0 && !directionLocked) return;
     if (current == 1 && !tiltLocked) return;
@@ -177,16 +193,36 @@ Future<void> _saveResultsToFirestore() async {
         startLightSensor();
       }
     } else {
-      // Save results to Firestore right before finishing the final task
-      await _saveResultsToFirestore();
+      setState(() {
+        _savingResults = true;
+      });
 
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const CompletionPage(),
-        ),
-      );
+      try {
+        final resultId = await _saveResultsToFirestore();
+
+        if (!mounted) return;
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CompletionPage(
+              resultId: resultId,
+            ),
+          ),
+        );
+      } catch (error) {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not save results: $error'),
+          ),
+        );
+
+        setState(() {
+          _savingResults = false;
+        });
+      }
     }
   }
 
@@ -197,7 +233,7 @@ Future<void> _saveResultsToFirestore() async {
         event.z,
       );
 
-      final tiltDegrees = (tiltRadians * 180 / math.pi).abs();
+      final tiltDegrees = tiltRadians * 180 / math.pi;
 
       if (!mounted || tiltLocked) return;
 
@@ -222,7 +258,7 @@ Future<void> _saveResultsToFirestore() async {
   }
 
   void confirmTiltReady() {
-    if (currentTilt == null || currentTilt! > 5.0) {
+    if (currentTilt == null || currentTilt!.abs() > 5.0) {
       return;
     }
 
@@ -233,8 +269,8 @@ Future<void> _saveResultsToFirestore() async {
 
   double get tiltError {
     if (lockedTilt == null) return 0;
-
-    return (lockedTilt! - targetTilt).abs();
+    final difference = (lockedTilt! - targetTilt + 540) % 360 - 180;
+    return difference.abs();
   }
 
   void startLightSensor() {
@@ -275,6 +311,43 @@ Future<void> _saveResultsToFirestore() async {
     if (lockedLight == null) return 0;
 
     return (lockedLight! - targetLight).abs();
+  }
+
+  // ACCURACY SCORING
+
+  // Direction and Tilt: 45 degrees off = 0%.
+  double angleAccuracy(double error) {
+    return (100.0 * (1.0 - error / 45.0)).clamp(0.0, 100.0).toDouble();
+  }
+
+  double get directionAccuracy {
+    return angleAccuracy(directionError);
+  }
+
+  double get tiltAccuracy {
+    return angleAccuracy(tiltError);
+  }
+
+  // Light: compare the target and actual brightness
+  // proportionally, with a 50-lux adjustment near zero.
+  double get lightAccuracy {
+    if (lockedLight == null) return 0.0;
+
+    final target = targetLight.toDouble() + 50.0;
+    final actual = lockedLight!.toDouble() + 50.0;
+
+    return (100.0 *
+            math.min(
+              target / actual,
+              actual / target,
+            ))
+        .clamp(0.0, 100.0)
+        .toDouble();
+  }
+
+  // All three tasks contribute equally.
+  double get overallAccuracy {
+    return (directionAccuracy + tiltAccuracy + lightAccuracy) / 3.0;
   }
 
   @override
@@ -370,7 +443,7 @@ Future<void> _saveResultsToFirestore() async {
                           SensorKind.direction =>
                             'Point ${targetDirection.toStringAsFixed(0)}° from North',
                           SensorKind.tilt => 'Tilt to 45°',
-                          SensorKind.light => 'Match 50 Lux',
+                          SensorKind.light => 'Match 500 Lux',
                         },
                         size: 20,
                       ),
@@ -385,7 +458,7 @@ Future<void> _saveResultsToFirestore() async {
                             'Tilt your phone forward to exactly 45 degrees.',
                           SensorKind.light =>
                             'Cover or uncover the light sensor to match '
-                            '50 lux without seeing your live reading.',
+                                '500 lux without seeing your live reading.',
                         },
                         size: 14,
                       ),
@@ -455,14 +528,14 @@ Future<void> _saveResultsToFirestore() async {
                 labelText(
                   currentTilt == null
                       ? 'Waiting for tilt sensor...'
-                      : currentTilt! <= 5
+                      : currentTilt!.abs() <= 5
                           ? 'Your phone is flat. Press I\'m Ready!'
                           : 'Place your phone flat to begin.',
                   weight: FontWeight.w800,
                   align: TextAlign.center,
                 ),
                 const SizedBox(height: 18),
-                if (currentTilt != null && currentTilt! <= 5)
+                if (currentTilt != null && currentTilt!.abs() <= 5)
                   Pill(
                     text: "I'm Ready",
                     width: 200,
@@ -708,7 +781,7 @@ Future<void> _saveResultsToFirestore() async {
                 labelText(
                   currentTilt == null
                       ? 'Waiting for sensor...'
-                      : currentTilt! <= 5
+                      : currentTilt!.abs() <= 5
                           ? 'Phone is flat! You are ready.'
                           : 'Adjust your phone until it is flat.',
                   color: C.ink,
