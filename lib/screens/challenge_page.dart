@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:light/light.dart';
 
 import '../theme/app_colors.dart';
@@ -13,6 +15,7 @@ import '../widgets/pill_button.dart';
 import '../widgets/sensor_badge.dart';
 import '../widgets/sensor_panel.dart';
 import 'completion_page.dart';
+import 'package:intl/intl.dart';
 
 class ChallengePage extends StatefulWidget {
   final int initialTask;
@@ -33,6 +36,7 @@ class _ChallengePageState extends State<ChallengePage> {
   double? startingHeading;
   double? lockedHeading;
   bool directionLocked = false;
+  final Stopwatch _challengeStopwatch = Stopwatch();
 
   StreamSubscription<MagnetometerEvent>? magnetometerSubscription;
 
@@ -75,6 +79,7 @@ class _ChallengePageState extends State<ChallengePage> {
   @override
   void initState() {
     super.initState();
+    _challengeStopwatch.start();
 
     if (current == 0) {
       startDirectionSensor();
@@ -117,7 +122,32 @@ class _ChallengePageState extends State<ChallengePage> {
     return math.min(difference, 360 - difference);
   }
 
-  void nextTask() {
+Future<void> _saveResultsToFirestore() async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
+
+  _challengeStopwatch.stop(); // Stop timing the session
+  final int elapsedSeconds = _challengeStopwatch.elapsed.inSeconds;
+
+  try {
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('results')
+        .add({
+      'challengeDate': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+      'directionError': directionError,
+      'tiltError': tiltError,
+      'totalDurationSeconds': elapsedSeconds, // Now safe to include!
+      'completedAt': FieldValue.serverTimestamp(),
+    });
+    debugPrint('Challenge metrics successfully saved to Firestore!');
+  } catch (e) {
+    debugPrint('Error saving challenge results: $e');
+  }
+}
+
+  void nextTask() async {
     // Require a locked answer before advancing.
     if (current == 0 && !directionLocked) return;
     if (current == 1 && !tiltLocked) return;
@@ -146,6 +176,10 @@ class _ChallengePageState extends State<ChallengePage> {
         startLightSensor();
       }
     } else {
+      // Save results to Firestore right before finishing the final task
+      await _saveResultsToFirestore();
+
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -157,8 +191,6 @@ class _ChallengePageState extends State<ChallengePage> {
 
   void startTiltSensor() {
     accelerometerSubscription = accelerometerEventStream().listen((event) {
-      // Calculate forward/backward tilt from the flat position.
-      // Rotation around the phone's X-axis changes Y and Z.
       final tiltRadians = math.atan2(
         event.y,
         event.z,
@@ -535,7 +567,6 @@ class _ChallengePageState extends State<ChallengePage> {
   }
 
   // Direction challenge panel
-
   Widget buildDirectionChallenge() {
     return Container(
         width: double.infinity,
@@ -630,8 +661,7 @@ class _ChallengePageState extends State<ChallengePage> {
         ));
   }
 
-  //Tilt challenge panel
-
+  // Tilt challenge panel
   Widget buildTiltChallenge() {
     return Container(
       width: double.infinity,
