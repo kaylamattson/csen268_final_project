@@ -9,6 +9,7 @@ import '../widgets/task_card.dart';
 import 'challenge_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -43,11 +44,12 @@ class _HomeScreenState extends State<HomeScreen> {
     // 3. Listen for incoming messages while the app is in the foreground
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       debugPrint('Received foreground message: ${message.notification?.title}');
-      
+
       if (message.notification != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${message.notification?.title}: ${message.notification?.body}'),
+            content: Text(
+                '${message.notification?.title}: ${message.notification?.body}'),
           ),
         );
       }
@@ -59,11 +61,36 @@ class _HomeScreenState extends State<HomeScreen> {
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(30, 24, 30, 22),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const Text('Sensle',
-            style: TextStyle(
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Sensle',
+              style: TextStyle(
                 fontSize: 56,
                 fontWeight: FontWeight.w800,
-                color: Colors.black)),
+                color: Colors.black,
+              ),
+            ),
+            IconButton(
+              icon: const Icon(
+                Icons.account_circle_outlined,
+                size: 38,
+                color: Colors.black,
+              ),
+              tooltip: 'Profile',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ProfileScreen(),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+
         const SizedBox(height: 10),
         Container(
             padding: const EdgeInsets.all(22),
@@ -89,7 +116,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 8)
             ])),
         const SizedBox(height: 24),
-        
+
         // Task cards are now fully non-interactive
         for (final s in SensorKind.values) ...[
           taskCard(s),
