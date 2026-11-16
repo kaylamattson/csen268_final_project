@@ -83,9 +83,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontSize: 20,
                 ),
               ),
-              const SizedBox(height: 24),
-              labelText('3 tasks, 1 minute.\nCan you complete them all?',
-                  color: Colors.white, align: TextAlign.center),
+              const SizedBox(height: 20),
+              labelText('3 tasks.\nHow fast can you complete them all?',
+                  color: Colors.white, align: TextAlign.center, size: 18),
               const SizedBox(height: 8)
             ])),
         const SizedBox(height: 24),
@@ -104,50 +104,6 @@ class _HomeScreenState extends State<HomeScreen> {
             width: double.infinity,
             onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const ChallengePage()))),
-
-        // Temporary Firestore test button
-        const SizedBox(height: 16),
-        ElevatedButton(
-          onPressed: () async {
-            try {
-              final user = FirebaseAuth.instance.currentUser;
-
-              if (user == null) {
-                debugPrint('No user signed in');
-                return;
-              }
-
-              await FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(user.uid)
-                  .collection('results')
-                  .add({
-                'directionError': 15,
-                'tiltAngle': 42,
-                'completedAt': FieldValue.serverTimestamp(),
-              });
-
-              debugPrint('Firestore test successful!');
-
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Result saved to Firestore!'),
-                  ),
-                );
-              }
-            } catch (e) {
-              debugPrint('Firestore error: $e');
-
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Firestore error: $e')),
-                );
-              }
-            }
-          },
-          child: const Text('Test Firestore'),
-        ),
       ]),
     );
   }
