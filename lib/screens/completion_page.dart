@@ -253,7 +253,7 @@ class _CompletionPageState extends State<CompletionPage> {
                     color: C.pale,
                     onTap: () => showDialog(
                       context: context,
-                      builder: (_) => const ShareDialog(),
+                      builder: (_) => ShareDialog(resultData: data),
                     ),
                   ),
 
