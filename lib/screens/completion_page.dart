@@ -13,6 +13,7 @@ import 'share_dialog.dart';
 import 'tabs_page.dart';
 import '../models/challenge_result.dart';
 import '../repositories/challenge_repository.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class CompletionPage extends StatefulWidget {
   final String resultId;
@@ -253,7 +254,16 @@ class _CompletionPageState extends State<CompletionPage> {
                     color: C.pale,
                     onTap: () => showDialog(
                       context: context,
-                      builder: (_) => ShareDialog(resultData: data),
+                      builder: (_) => ShareDialog(
+                        resultData: {
+                          'completedAt': Timestamp.now(),
+                          'challengeDate': challengeDate,
+                          'totalDurationSeconds': duration,
+                          'directionError': directionError,
+                          'tiltError': tiltError,
+                          'lightError': lightError,
+                        },
+                      ),
                     ),
                   ),
 
