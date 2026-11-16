@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -36,6 +35,16 @@ class _ChallengePageState extends State<ChallengePage> {
 
   StreamSubscription<MagnetometerEvent>? magnetometerSubscription;
 
+  // Tilt Challenge
+  static const double targetTilt = 45.0;
+
+  double? currentTilt;
+  double? lockedTilt;
+  bool tiltLocked = false;
+  bool tiltReady = false;
+
+  StreamSubscription<AccelerometerEvent>? accelerometerSubscription;
+
   String getCardinalDirection(double degrees) {
     const directions = [
       'North',
@@ -58,15 +67,14 @@ class _ChallengePageState extends State<ChallengePage> {
 
     if (current == 0) {
       startDirectionSensor();
+    } else if (current == 1) {
+      startTiltSensor();
     }
   }
-  
 
   void startDirectionSensor() {
-    magnetometerSubscription =
-        magnetometerEventStream().listen((event) {
-      double heading =
-          math.atan2(event.y, event.x) * (180 / math.pi);
+    magnetometerSubscription = magnetometerEventStream().listen((event) {
+      double heading = math.atan2(event.y, event.x) * (180 / math.pi);
 
       heading = (heading + 360) % 360;
 
@@ -91,23 +99,35 @@ class _ChallengePageState extends State<ChallengePage> {
   double get directionError {
     if (lockedHeading == null) return 0;
 
-    final difference =
-        (lockedHeading! - targetDirection).abs();
+    final difference = (lockedHeading! - targetDirection).abs();
 
     return math.min(difference, 360 - difference);
   }
 
   void nextTask() {
+    // Require a locked answer before advancing.
     if (current == 0 && !directionLocked) return;
+    if (current == 1 && !tiltLocked) return;
 
     if (current < 2) {
+      final previousTask = current;
+
       setState(() {
         current++;
       });
 
-      if (current == 1) {
+      // Direction -> Tilt
+      if (previousTask == 0) {
         magnetometerSubscription?.cancel();
         magnetometerSubscription = null;
+
+        startTiltSensor();
+      }
+
+      // Tilt -> Light
+      if (previousTask == 1) {
+        accelerometerSubscription?.cancel();
+        accelerometerSubscription = null;
       }
     } else {
       Navigator.pushReplacement(
@@ -119,9 +139,59 @@ class _ChallengePageState extends State<ChallengePage> {
     }
   }
 
+  void startTiltSensor() {
+    accelerometerSubscription = accelerometerEventStream().listen((event) {
+      // Calculate forward/backward tilt from the flat position.
+      // Rotation around the phone's X-axis changes Y and Z.
+      final tiltRadians = math.atan2(
+        event.y,
+        event.z,
+      );
+
+      final tiltDegrees = (tiltRadians * 180 / math.pi).abs();
+
+      if (!mounted || tiltLocked) return;
+
+      setState(() {
+        currentTilt = tiltDegrees;
+      });
+    });
+  }
+
+  void lockTilt() {
+    if (!tiltReady || currentTilt == null || tiltLocked) {
+      return;
+    }
+
+    setState(() {
+      lockedTilt = currentTilt;
+      tiltLocked = true;
+    });
+
+    accelerometerSubscription?.cancel();
+    accelerometerSubscription = null;
+  }
+
+  void confirmTiltReady() {
+    if (currentTilt == null || currentTilt! > 5.0) {
+      return;
+    }
+
+    setState(() {
+      tiltReady = true;
+    });
+  }
+
+  double get tiltError {
+    if (lockedTilt == null) return 0;
+
+    return (lockedTilt! - targetTilt).abs();
+  }
+
   @override
   void dispose() {
     magnetometerSubscription?.cancel();
+    accelerometerSubscription?.cancel();
     super.dispose();
   }
 
@@ -155,7 +225,6 @@ class _ChallengePageState extends State<ChallengePage> {
                         size: 24,
                       ),
                       const SizedBox(height: 2),
-
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: List.generate(
@@ -168,9 +237,8 @@ class _ChallengePageState extends State<ChallengePage> {
                             height: 8,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: i == current
-                                  ? Colors.black
-                                  : Colors.black26,
+                              color:
+                                  i == current ? Colors.black : Colors.black26,
                             ),
                           ),
                         ),
@@ -180,7 +248,9 @@ class _ChallengePageState extends State<ChallengePage> {
                 ),
 
                 // Next appears only after locking Direction.
-                if (current != 0 || directionLocked)
+                if ((current == 0 && directionLocked) ||
+                    (current == 1 && tiltLocked) ||
+                    current == 2)
                   Pill(
                     text: current == 2 ? 'Done' : 'Next',
                     width: 100,
@@ -200,28 +270,26 @@ class _ChallengePageState extends State<ChallengePage> {
               children: [
                 SensorBadge(kind),
                 const SizedBox(width: 18),
-
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       heading(
                         switch (kind) {
-                          SensorKind.direction => 'Point ${targetDirection.toStringAsFixed(0)}° from North',
+                          SensorKind.direction =>
+                            'Point ${targetDirection.toStringAsFixed(0)}° from North',
                           SensorKind.tilt => 'Tilt to 45°',
                           SensorKind.light => 'Block the Light Sensor',
                         },
                         size: 20,
                       ),
-
                       const SizedBox(height: 5),
-
                       labelText(
                         switch (kind) {
                           SensorKind.direction =>
                             'Your target is ${getCardinalDirection(targetDirection)}. '
-                            'Rotate your phone toward the target without seeing '
-                            'your live heading.',
+                                'Rotate your phone toward the target without seeing '
+                                'your live heading.',
                           SensorKind.tilt =>
                             'Tilt your phone forward to exactly 45 degrees.',
                           SensorKind.light =>
@@ -241,10 +309,12 @@ class _ChallengePageState extends State<ChallengePage> {
             Expanded(
               child: current == 0
                   ? buildDirectionChallenge()
-                  : SensorPanel(
-                      kind: kind,
-                      practice: false,
-                    ),
+                  : current == 1
+                      ? buildTiltChallenge()
+                      : SensorPanel(
+                          kind: kind,
+                          practice: false,
+                        ),
             ),
 
             const SizedBox(height: 24),
@@ -259,9 +329,7 @@ class _ChallengePageState extends State<ChallengePage> {
                   weight: FontWeight.w800,
                   align: TextAlign.center,
                 ),
-
                 const SizedBox(height: 18),
-
                 if (currentHeading != null)
                   Pill(
                     text: 'Lock It In',
@@ -291,22 +359,74 @@ class _ChallengePageState extends State<ChallengePage> {
                     ],
                   ),
                 ),
+            ] else if (current == 1) ...[
+              // TILT CHALLENGE
+
+              if (!tiltReady) ...[
+                labelText(
+                  currentTilt == null
+                      ? 'Waiting for tilt sensor...'
+                      : currentTilt! <= 5
+                          ? 'Your phone is flat. Press I\'m Ready!'
+                          : 'Place your phone flat to begin.',
+                  weight: FontWeight.w800,
+                  align: TextAlign.center,
+                ),
+                const SizedBox(height: 18),
+                if (currentTilt != null && currentTilt! <= 5)
+                  Pill(
+                    text: "I'm Ready",
+                    width: 200,
+                    color: C.teal,
+                    onTap: confirmTiltReady,
+                  ),
+              ] else if (!tiltLocked) ...[
+                labelText(
+                  'Tilt toward 45°!\nYour current angle is hidden.',
+                  weight: FontWeight.w800,
+                  align: TextAlign.center,
+                ),
+                const SizedBox(height: 18),
+                Pill(
+                  text: 'Lock It In',
+                  width: 200,
+                  color: C.teal,
+                  onTap: lockTilt,
+                ),
+              ] else
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: C.lightPink,
+                    borderRadius: BorderRadius.circular(21),
+                  ),
+                  child: Column(
+                    children: [
+                      heading(
+                        'Your Tilt: ${lockedTilt!.toStringAsFixed(1)}°',
+                        size: 20,
+                      ),
+                      const SizedBox(height: 8),
+                      labelText(
+                        '${tiltError.toStringAsFixed(1)}° off target',
+                        weight: FontWeight.w800,
+                      ),
+                    ],
+                  ),
+                ),
             ] else
-              // Existing Tilt and Light feedback
+              // LIGHT CHALLENGE — unchanged for now
               Container(
                 height: 76,
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: current == 1
-                      ? C.lightPink
-                      : C.limePale,
+                  color: C.limePale,
                   borderRadius: BorderRadius.circular(21),
                 ),
                 child: Center(
                   child: labelText(
-                    current == 1
-                        ? 'Tilt a bit more forward!'
-                        : 'Keep blocking the light!',
+                    'Keep blocking the light!',
                     weight: FontWeight.w800,
                     align: TextAlign.center,
                   ),
@@ -332,105 +452,194 @@ class _ChallengePageState extends State<ChallengePage> {
   }
 
   // Direction challenge panel
-  
-Widget buildDirectionChallenge() {
-  return Container(
-    width: double.infinity,
-    decoration: BoxDecoration(
-      color: C.purpleDark,
-      borderRadius: BorderRadius.circular(24),
-    ),
-    child: SingleChildScrollView(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const Icon(
-          Icons.explore_outlined,
-          color: Colors.white,
-          size: 85,
+
+  Widget buildDirectionChallenge() {
+    return Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: C.purpleDark,
+          borderRadius: BorderRadius.circular(24),
         ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.explore_outlined,
+                color: Colors.white,
+                size: 85,
+              ),
 
-        const SizedBox(height: 20),
+              const SizedBox(height: 20),
 
-        // Starting direction
-        labelText(
-          'YOUR STARTING DIRECTION',
-          color: Colors.white70,
-          weight: FontWeight.w800,
-        ),
+              // Starting direction
+              labelText(
+                'YOUR STARTING DIRECTION',
+                color: Colors.white70,
+                weight: FontWeight.w800,
+              ),
 
-        const SizedBox(height: 8),
+              const SizedBox(height: 8),
 
-        heading(
-          startingHeading == null
-              ? 'Reading sensor...'
-              : '${startingHeading!.toStringAsFixed(0)}° from North',
-          size: 24,
-          color: Colors.white,
-        ),
+              heading(
+                startingHeading == null
+                    ? 'Reading sensor...'
+                    : '${startingHeading!.toStringAsFixed(0)}° from North',
+                size: 24,
+                color: Colors.white,
+              ),
 
-        const SizedBox(height: 5),
+              const SizedBox(height: 5),
 
-        if (startingHeading != null)
-          labelText(
-            'Facing ${getCardinalDirection(startingHeading!)}',
-            color: Colors.white,
+              if (startingHeading != null)
+                labelText(
+                  'Facing ${getCardinalDirection(startingHeading!)}',
+                  color: Colors.white,
+                ),
+
+              const SizedBox(height: 30),
+
+              // Target direction
+              labelText(
+                'YOUR TARGET',
+                color: Colors.white70,
+                weight: FontWeight.w800,
+              ),
+
+              const SizedBox(height: 8),
+
+              heading(
+                '${targetDirection.toStringAsFixed(0)}° from North',
+                size: 28,
+                color: Colors.white,
+              ),
+
+              const SizedBox(height: 5),
+
+              labelText(
+                getCardinalDirection(targetDirection),
+                color: Colors.white,
+                weight: FontWeight.w800,
+              ),
+
+              // Only reveal after locking in
+              if (directionLocked) ...[
+                const SizedBox(height: 30),
+                labelText(
+                  'YOUR LOCKED DIRECTION',
+                  color: Colors.white70,
+                  weight: FontWeight.w800,
+                ),
+                const SizedBox(height: 8),
+                heading(
+                  '${lockedHeading!.toStringAsFixed(1)}°',
+                  size: 30,
+                  color: Colors.white,
+                ),
+                const SizedBox(height: 5),
+                labelText(
+                  'Facing ${getCardinalDirection(lockedHeading!)}',
+                  color: Colors.white,
+                ),
+              ],
+            ],
           ),
+        ));
+  }
 
-        const SizedBox(height: 30),
+  //Tilt challenge panel
 
-        // Target direction
-        labelText(
-          'YOUR TARGET',
-          color: Colors.white70,
-          weight: FontWeight.w800,
-        ),
-
-        const SizedBox(height: 8),
-
-        heading(
-          '${targetDirection.toStringAsFixed(0)}° from North',
-          size: 28,
-          color: Colors.white,
-        ),
-
-        const SizedBox(height: 5),
-
-        labelText(
-          getCardinalDirection(targetDirection),
-          color: Colors.white,
-          weight: FontWeight.w800,
-        ),
-
-        // Only reveal after locking in
-        if (directionLocked) ...[
-          const SizedBox(height: 30),
-
-          labelText(
-            'YOUR LOCKED DIRECTION',
-            color: Colors.white70,
-            weight: FontWeight.w800,
+  Widget buildTiltChallenge() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: C.lightPink,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 28,
           ),
-
-          const SizedBox(height: 8),
-
-          heading(
-            '${lockedHeading!.toStringAsFixed(1)}°',
-            size: 30,
-            color: Colors.white,
+          child: Column(
+            children: [
+              const Icon(
+                Icons.screen_rotation_outlined,
+                color: C.ink,
+                size: 70,
+              ),
+              const SizedBox(height: 24),
+              if (!tiltReady) ...[
+                labelText(
+                  'STEP 1: STARTING POSITION',
+                  color: C.ink,
+                  weight: FontWeight.w800,
+                ),
+                const SizedBox(height: 12),
+                heading(
+                  '0° — Flat',
+                  size: 30,
+                  color: C.ink,
+                ),
+                const SizedBox(height: 16),
+                labelText(
+                  'Place your phone flat on a surface, '
+                  'screen facing upward.',
+                  color: C.ink,
+                  size: 14,
+                  align: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                labelText(
+                  currentTilt == null
+                      ? 'Waiting for sensor...'
+                      : currentTilt! <= 5
+                          ? 'Phone is flat! You are ready.'
+                          : 'Adjust your phone until it is flat.',
+                  color: C.ink,
+                  weight: FontWeight.w800,
+                  align: TextAlign.center,
+                ),
+              ] else ...[
+                labelText(
+                  'STEP 2: YOUR TARGET',
+                  color: C.ink,
+                  weight: FontWeight.w800,
+                ),
+                const SizedBox(height: 12),
+                heading(
+                  '${targetTilt.toStringAsFixed(0)}°',
+                  size: 48,
+                  color: C.ink,
+                ),
+                const SizedBox(height: 16),
+                labelText(
+                  'Lift the top edge of your phone '
+                  'and estimate a 45° tilt.',
+                  color: C.ink,
+                  size: 14,
+                  align: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                labelText(
+                  'Your live angle is hidden.',
+                  color: C.ink,
+                  weight: FontWeight.w800,
+                ),
+                if (tiltLocked) ...[
+                  const SizedBox(height: 25),
+                  heading(
+                    'Locked In!',
+                    size: 24,
+                    color: C.ink,
+                  ),
+                ],
+              ],
+            ],
           ),
-
-          const SizedBox(height: 5),
-
-          labelText(
-            'Facing ${getCardinalDirection(lockedHeading!)}',
-            color: Colors.white,
-          ),
-        ],
-      ],
-    ),
-    )
-  );
-}
-
+        ),
+      ),
+    );
+  }
 }
