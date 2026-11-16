@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/sensor_kind.dart';
 import '../widgets/app_text.dart';
 import '../widgets/task_card.dart';
-import 'sensor_practice_page.dart';
+import 'practice_challenge_page.dart';
 
 class PracticeScreen extends StatelessWidget {
   const PracticeScreen({super.key});
@@ -38,9 +38,9 @@ class PracticeScreen extends StatelessWidget {
                     () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => SensorPracticePage(
+                        builder: (context) => PracticeChallengePage(
                           // Pass the specific task name dynamically based on the loop item
-                          taskName: kind.name, 
+                          kind: kind, 
                         ),
                       ),
                     ),
