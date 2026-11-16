@@ -5,11 +5,15 @@ import '../models/sensor_kind.dart';
 
 class SensorPainter extends CustomPainter {
   final SensorKind kind;
-  SensorPainter(this.kind);
+  final double? heading;
+
+  SensorPainter(this.kind, {this.heading});
+
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height * .43);
     final radius = math.min(size.width * .42, size.height * .34);
+
     if (kind == SensorKind.direction) {
       final p = Paint()
         ..color = C.pale
@@ -17,13 +21,12 @@ class SensorPainter extends CustomPainter {
         ..strokeWidth = 5;
       canvas.drawCircle(center, radius, p);
       for (final (s, pos) in [
-        ('N', Offset(0, -.79)),
-        ('S', Offset(0, .79)),
-        ('W', Offset(-.8, 0)),
-        ('E', Offset(.8, 0))
+        ('N', const Offset(0, -.79)),
+        ('S', const Offset(0, .79)),
+        ('W', const Offset(-.8, 0)),
+        ('E', const Offset(.8, 0)),
       ]) {
-        drawText(canvas, s, center + Offset(pos.dx * radius, pos.dy * radius),
-            23, Colors.white);
+        drawText(canvas, s, center + Offset(pos.dx * radius, pos.dy * radius), 23, Colors.white);
       }
       final nav = Path()
         ..moveTo(center.dx - 9, center.dy + 4)
@@ -32,14 +35,16 @@ class SensorPainter extends CustomPainter {
         ..lineTo(center.dx + 3, center.dy - 15)
         ..close();
       canvas.drawPath(
-          nav,
-          Paint()
-            ..color = C.pale
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 5);
-      drawText(canvas, '15°', center + const Offset(0, 40), 28, Colors.white);
-      drawText(canvas, 'from target', center + const Offset(0, 70), 14,
-          Colors.white);
+        nav,
+        Paint()
+          ..color = C.pale
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 5,
+      );
+      // The degree value now updates when the magnetometer reports a reading.
+      final value = heading == null ? '—°' : '${heading!.toStringAsFixed(0)}°';
+      drawText(canvas, value, center + const Offset(0, 40), 28, Colors.white);
+      drawText(canvas, 'approx. heading', center + const Offset(0, 70), 14, Colors.white);
     } else if (kind == SensorKind.tilt) {
       final p = Paint()
         ..color = Colors.white
@@ -47,26 +52,25 @@ class SensorPainter extends CustomPainter {
         ..style = PaintingStyle.stroke;
       final origin = Offset(size.width * .23, size.height * .55);
       drawDashed(canvas, origin, Offset(size.width * .79, origin.dy), p);
-      drawDashed(
-          canvas, origin, Offset(size.width * .65, size.height * .17), p);
+      drawDashed(canvas, origin, Offset(size.width * .65, size.height * .17), p);
     } else {
       final p = Paint()
         ..color = C.darkTeal
         ..strokeWidth = 18
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round;
-      canvas.drawArc(Rect.fromCircle(center: center, radius: radius * .7), -.2,
-          math.pi * 1.65, false, p);
+      canvas.drawArc(Rect.fromCircle(center: center, radius: radius * .7), -.2, math.pi * 1.65, false, p);
       canvas.drawArc(
-          Rect.fromCircle(center: center, radius: radius * .7),
-          -math.pi / 2,
-          .75,
-          false,
-          Paint()
-            ..color = C.teal
-            ..strokeWidth = 18
-            ..style = PaintingStyle.stroke
-            ..strokeCap = StrokeCap.round);
+        Rect.fromCircle(center: center, radius: radius * .7),
+        -math.pi / 2,
+        .75,
+        false,
+        Paint()
+          ..color = C.teal
+          ..strokeWidth = 18
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round,
+      );
       final sun = Paint()
         ..color = Colors.white
         ..strokeWidth = 3
@@ -74,23 +78,21 @@ class SensorPainter extends CustomPainter {
       canvas.drawCircle(center, 13, sun);
       for (var i = 0; i < 8; i++) {
         final a = i * math.pi / 4;
-        canvas.drawLine(center + Offset(math.cos(a) * 23, math.sin(a) * 23),
-            center + Offset(math.cos(a) * 31, math.sin(a) * 31), sun);
+        canvas.drawLine(
+          center + Offset(math.cos(a) * 23, math.sin(a) * 23),
+          center + Offset(math.cos(a) * 31, math.sin(a) * 31),
+          sun,
+        );
       }
     }
   }
 
-  void drawText(
-      Canvas canvas, String text, Offset center, double size, Color color) {
+  void drawText(Canvas canvas, String text, Offset center, double size, Color color) {
     final painter = TextPainter(
-        text: TextSpan(
-            text: text,
-            style: TextStyle(
-                color: color, fontSize: size, fontWeight: FontWeight.w700)),
-        textDirection: TextDirection.ltr)
-      ..layout();
-    painter.paint(
-        canvas, center - Offset(painter.width / 2, painter.height / 2));
+      text: TextSpan(text: text, style: TextStyle(color: color, fontSize: size, fontWeight: FontWeight.w700)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    painter.paint(canvas, center - Offset(painter.width / 2, painter.height / 2));
   }
 
   void drawDashed(Canvas c, Offset a, Offset b, Paint p) {
@@ -103,5 +105,5 @@ class SensorPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant SensorPainter old) => old.kind != kind;
+  bool shouldRepaint(covariant SensorPainter old) => old.kind != kind || old.heading != heading;
 }
