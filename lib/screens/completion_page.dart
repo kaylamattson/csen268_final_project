@@ -140,7 +140,7 @@ class _CompletionPageState extends State<CompletionPage> {
                           color: Colors.white,
                         ),
                         heading(
-                          duration == null ? '—' : formatDuration(duration),
+                          formatDuration(duration),
                           size: 25,
                           color: Colors.white,
                         ),

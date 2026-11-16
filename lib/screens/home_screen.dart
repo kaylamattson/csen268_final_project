@@ -7,8 +7,6 @@ import '../widgets/app_text.dart';
 import '../widgets/pill_button.dart';
 import '../widgets/task_card.dart';
 import 'challenge_page.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
