@@ -1,9 +1,9 @@
+
 import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
-import 'package:light/light.dart';
 
 import '../theme/app_colors.dart';
 import '../models/sensor_kind.dart';
@@ -16,6 +16,7 @@ import 'completion_page.dart';
 
 class ChallengePage extends StatefulWidget {
   final int initialTask;
+
   const ChallengePage({super.key, this.initialTask = 0});
 
   @override
@@ -25,138 +26,151 @@ class ChallengePage extends StatefulWidget {
 class _ChallengePageState extends State<ChallengePage> {
   late int current = widget.initialTask;
 
-  StreamSubscription<MagnetometerEvent>? _magnetometerSubscription;
-  StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
-  StreamSubscription<int>? _lightSubscription;
+  // Direction Challenge
+  static const double targetDirection = 120.0;
 
-  double? _heading;
-  double? _tiltAngle;
-  int? _lux;
-  String? _sensorError;
+  double? currentHeading;
+  double? startingHeading;
+  double? lockedHeading;
+  bool directionLocked = false;
+
+  StreamSubscription<MagnetometerEvent>? magnetometerSubscription;
+
+  String getCardinalDirection(double degrees) {
+    const directions = [
+      'North',
+      'Northeast',
+      'East',
+      'Southeast',
+      'South',
+      'Southwest',
+      'West',
+      'Northwest',
+    ];
+
+    final index = ((degrees + 22.5) ~/ 45) % 8;
+    return directions[index];
+  }
 
   @override
   void initState() {
     super.initState();
-    _startCurrentSensor();
-  }
 
-  void _stopSensors() {
-    _magnetometerSubscription?.cancel();
-    _accelerometerSubscription?.cancel();
-    _lightSubscription?.cancel();
-    _magnetometerSubscription = null;
-    _accelerometerSubscription = null;
-    _lightSubscription = null;
-  }
-
-  void _startCurrentSensor() {
-    _stopSensors();
-    _heading = null;
-    _tiltAngle = null;
-    _lux = null;
-    _sensorError = null;
-
-    switch (SensorKind.values[current]) {
-      case SensorKind.direction:
-        _magnetometerSubscription = magnetometerEventStream().listen(
-          (event) {
-            // Matches the existing Practice screen: raw magnetometer
-            // angle, not yet a calibrated, tilt-compensated compass heading.
-            final rawAngle = math.atan2(event.y, event.x) * 180 / math.pi;
-            final heading = (rawAngle + 360) % 360;
-            if (mounted) setState(() => _heading = heading);
-          },
-          onError: (Object error) {
-            if (mounted) setState(() => _sensorError = 'Direction sensor unavailable');
-          },
-          cancelOnError: true,
-        );
-        break;
-      case SensorKind.tilt:
-        _accelerometerSubscription = accelerometerEventStream().listen(
-          (event) {
-            // An approximate pitch-like tilt magnitude relative to the
-            // device's Y axis. Calibrate against your emulator's Device Pose.
-            final tilt = math.atan2(
-              event.y.abs(),
-              math.sqrt(event.x * event.x + event.z * event.z),
-            ) * 180 / math.pi;
-            if (mounted) setState(() => _tiltAngle = tilt);
-          },
-          onError: (Object error) {
-            if (mounted) setState(() => _sensorError = 'Tilt sensor unavailable');
-          },
-          cancelOnError: true,
-        );
-        break;
-      case SensorKind.light:
-        try {
-          _lightSubscription = Light().lightSensorStream.listen(
-            (lux) {
-              if (mounted) setState(() => _lux = lux);
-            },
-            onError: (Object error) {
-              if (mounted) setState(() => _sensorError = 'Light sensor unavailable');
-            },
-            cancelOnError: true,
-          );
-        } catch (_) {
-          _sensorError = 'Light sensor unavailable';
-        }
-        break;
+    if (current == 0) {
+      startDirectionSensor();
     }
   }
+  
 
-  @override
-  void dispose() {
-    _stopSensors();
-    super.dispose();
+  void startDirectionSensor() {
+    magnetometerSubscription =
+        magnetometerEventStream().listen((event) {
+      double heading =
+          math.atan2(event.y, event.x) * (180 / math.pi);
+
+      heading = (heading + 360) % 360;
+
+      if (!mounted) return;
+
+      setState(() {
+        currentHeading = heading;
+        startingHeading ??= heading;
+      });
+    });
   }
 
-  void _nextTask() {
-    if (current < SensorKind.values.length - 1) {
+  void lockDirection() {
+    if (currentHeading == null || directionLocked) return;
+
+    setState(() {
+      lockedHeading = currentHeading;
+      directionLocked = true;
+    });
+  }
+
+  double get directionError {
+    if (lockedHeading == null) return 0;
+
+    final difference =
+        (lockedHeading! - targetDirection).abs();
+
+    return math.min(difference, 360 - difference);
+  }
+
+  void nextTask() {
+    if (current == 0 && !directionLocked) return;
+
+    if (current < 2) {
       setState(() {
         current++;
-        _startCurrentSensor();
       });
+
+      if (current == 1) {
+        magnetometerSubscription?.cancel();
+        magnetometerSubscription = null;
+      }
     } else {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const CompletionPage()),
+        MaterialPageRoute(
+          builder: (_) => const CompletionPage(),
+        ),
       );
     }
   }
 
   @override
+  void dispose() {
+    magnetometerSubscription?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final kind = SensorKind.values[current];
+
     return Base(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
         child: Column(
           children: [
+            // Top navigation
             Row(
               children: [
                 IconButton(
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.arrow_back_ios, color: C.ink, size: 28),
+                  icon: const Icon(
+                    Icons.arrow_back_ios,
+                    color: C.ink,
+                    size: 28,
+                  ),
                 ),
+
                 Expanded(
                   child: Column(
                     children: [
-                      labelText('Task ${current + 1} of 3', color: Colors.black, size: 24),
+                      labelText(
+                        'Task ${current + 1} of 3',
+                        color: Colors.black,
+                        size: 24,
+                      ),
                       const SizedBox(height: 2),
+
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: List.generate(
                           3,
                           (i) => Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            margin: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                            ),
                             width: 8,
                             height: 8,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: i == current ? Colors.black : Colors.black26,
+                              color: i == current
+                                  ? Colors.black
+                                  : Colors.black26,
                             ),
                           ),
                         ),
@@ -164,38 +178,54 @@ class _ChallengePageState extends State<ChallengePage> {
                     ],
                   ),
                 ),
-                Pill(
-                  text: current == 2 ? 'Done' : 'Next',
-                  width: 100,
-                  color: C.pale,
-                  onTap: _nextTask,
-                ),
+
+                // Next appears only after locking Direction.
+                if (current != 0 || directionLocked)
+                  Pill(
+                    text: current == 2 ? 'Done' : 'Next',
+                    width: 100,
+                    color: C.pale,
+                    onTap: nextTask,
+                  )
+                else
+                  const SizedBox(width: 100),
               ],
             ),
+
             const SizedBox(height: 52),
+
+            // Challenge instructions
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SensorBadge(kind),
                 const SizedBox(width: 18),
+
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       heading(
                         switch (kind) {
-                          SensorKind.direction => 'Point Due North',
+                          SensorKind.direction => 'Point ${targetDirection.toStringAsFixed(0)}° from North',
                           SensorKind.tilt => 'Tilt to 45°',
                           SensorKind.light => 'Block the Light Sensor',
                         },
                         size: 20,
                       ),
+
                       const SizedBox(height: 5),
+
                       labelText(
                         switch (kind) {
-                          SensorKind.direction => 'Rotate your phone until it points exactly north.',
-                          SensorKind.tilt => 'Tilt your phone forward to exactly 45 degrees.',
-                          SensorKind.light => 'Cover the top of your phone to block the light sensor.',
+                          SensorKind.direction =>
+                            'Your target is ${getCardinalDirection(targetDirection)}. '
+                            'Rotate your phone toward the target without seeing '
+                            'your live heading.',
+                          SensorKind.tilt =>
+                            'Tilt your phone forward to exactly 45 degrees.',
+                          SensorKind.light =>
+                            'Cover the top of your phone to block the light sensor.',
                         },
                         size: 14,
                       ),
@@ -204,43 +234,88 @@ class _ChallengePageState extends State<ChallengePage> {
                 ),
               ],
             ),
+
             const SizedBox(height: 38),
+
+            // Sensor display
             Expanded(
-              child: SensorPanel(
-                kind: kind,
-                practice: false,
-                headingDegrees: _heading,
-                tiltAngle: _tiltAngle,
-                lux: _lux,
-                errorText: _sensorError,
-              ),
+              child: current == 0
+                  ? buildDirectionChallenge()
+                  : SensorPanel(
+                      kind: kind,
+                      practice: false,
+                    ),
             ),
+
             const SizedBox(height: 24),
-            Container(
-              height: kind == SensorKind.direction ? 76 : 55,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: switch (kind) {
-                  SensorKind.direction => C.purplePale,
-                  SensorKind.tilt => C.lightPink,
-                  SensorKind.light => C.limePale,
-                },
-                borderRadius: BorderRadius.circular(21),
-                boxShadow: const [BoxShadow(color: Colors.black26, offset: Offset(0, 3), blurRadius: 3)],
-              ),
-              child: Center(
-                child: labelText(
-                  _sensorError ?? switch (kind) {
-                    SensorKind.direction => 'Keep rotating...\nGet as close as possible!',
-                    SensorKind.tilt => 'Tilt a bit more forward!',
-                    SensorKind.light => 'Keep blocking the light!',
-                  },
+
+            // Direction feedback
+            if (current == 0) ...[
+              if (!directionLocked) ...[
+                labelText(
+                  currentHeading == null
+                      ? 'Waiting for compass sensor...'
+                      : 'Find the target direction!\nYour current angle is hidden.',
                   weight: FontWeight.w800,
                   align: TextAlign.center,
                 ),
+
+                const SizedBox(height: 18),
+
+                if (currentHeading != null)
+                  Pill(
+                    text: 'Lock It In',
+                    width: 200,
+                    color: C.teal,
+                    onTap: lockDirection,
+                  ),
+              ] else
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: C.purplePale,
+                    borderRadius: BorderRadius.circular(21),
+                  ),
+                  child: Column(
+                    children: [
+                      heading(
+                        'Your Direction: ${lockedHeading!.toStringAsFixed(1)}°',
+                        size: 20,
+                      ),
+                      const SizedBox(height: 8),
+                      labelText(
+                        '${directionError.toStringAsFixed(1)}° off target',
+                        weight: FontWeight.w800,
+                      ),
+                    ],
+                  ),
+                ),
+            ] else
+              // Existing Tilt and Light feedback
+              Container(
+                height: 76,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: current == 1
+                      ? C.lightPink
+                      : C.limePale,
+                  borderRadius: BorderRadius.circular(21),
+                ),
+                child: Center(
+                  child: labelText(
+                    current == 1
+                        ? 'Tilt a bit more forward!'
+                        : 'Keep blocking the light!',
+                    weight: FontWeight.w800,
+                    align: TextAlign.center,
+                  ),
+                ),
               ),
-            ),
+
             const Spacer(),
+
+            // Challenge progress
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: LinearProgressIndicator(
@@ -255,4 +330,107 @@ class _ChallengePageState extends State<ChallengePage> {
       ),
     );
   }
+
+  // Direction challenge panel
+  
+Widget buildDirectionChallenge() {
+  return Container(
+    width: double.infinity,
+    decoration: BoxDecoration(
+      color: C.purpleDark,
+      borderRadius: BorderRadius.circular(24),
+    ),
+    child: SingleChildScrollView(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(
+          Icons.explore_outlined,
+          color: Colors.white,
+          size: 85,
+        ),
+
+        const SizedBox(height: 20),
+
+        // Starting direction
+        labelText(
+          'YOUR STARTING DIRECTION',
+          color: Colors.white70,
+          weight: FontWeight.w800,
+        ),
+
+        const SizedBox(height: 8),
+
+        heading(
+          startingHeading == null
+              ? 'Reading sensor...'
+              : '${startingHeading!.toStringAsFixed(0)}° from North',
+          size: 24,
+          color: Colors.white,
+        ),
+
+        const SizedBox(height: 5),
+
+        if (startingHeading != null)
+          labelText(
+            'Facing ${getCardinalDirection(startingHeading!)}',
+            color: Colors.white,
+          ),
+
+        const SizedBox(height: 30),
+
+        // Target direction
+        labelText(
+          'YOUR TARGET',
+          color: Colors.white70,
+          weight: FontWeight.w800,
+        ),
+
+        const SizedBox(height: 8),
+
+        heading(
+          '${targetDirection.toStringAsFixed(0)}° from North',
+          size: 28,
+          color: Colors.white,
+        ),
+
+        const SizedBox(height: 5),
+
+        labelText(
+          getCardinalDirection(targetDirection),
+          color: Colors.white,
+          weight: FontWeight.w800,
+        ),
+
+        // Only reveal after locking in
+        if (directionLocked) ...[
+          const SizedBox(height: 30),
+
+          labelText(
+            'YOUR LOCKED DIRECTION',
+            color: Colors.white70,
+            weight: FontWeight.w800,
+          ),
+
+          const SizedBox(height: 8),
+
+          heading(
+            '${lockedHeading!.toStringAsFixed(1)}°',
+            size: 30,
+            color: Colors.white,
+          ),
+
+          const SizedBox(height: 5),
+
+          labelText(
+            'Facing ${getCardinalDirection(lockedHeading!)}',
+            color: Colors.white,
+          ),
+        ],
+      ],
+    ),
+    )
+  );
+}
+
 }
