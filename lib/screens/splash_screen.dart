@@ -6,7 +6,6 @@ import '../widgets/app_text.dart';
 import '../widgets/pill_button.dart';
 import '../widgets/sensor_badge.dart';
 import 'login_screen.dart';
-import 'tabs_page.dart';
 
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
